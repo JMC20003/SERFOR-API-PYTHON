@@ -9,6 +9,192 @@ from pyproj.aoi import AreaOfInterest
 from pyproj.database import query_utm_crs_info
 """
 import json
+import zipfile
+import tempfile
+import os
+import shapefile
+from pyproj import CRS, Transformer
+from shapely.ops import transform
+from shapely.geometry import shape as geom_shape, mapping
+
+def calculate_shapefile_area(zip_content: bytes):
+    """
+    Recibe el contenido de un archivo ZIP, extrae el shapefile, 
+    lee su proyección y calcula el área total en hectáreas, m2 y ubicación política.
+    """
+    from app.db.session import engine_titulohabilitante_area
+
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        zip_path = os.path.join(tmp_dir, "shapefile.zip")
+        with open(zip_path, "wb") as f:
+            f.write(zip_content)
+        
+        with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+            zip_ref.extractall(tmp_dir)
+        
+        # Buscar el archivo .shp
+        shp_file = None
+        prj_file = None
+        for file in os.listdir(tmp_dir):
+            if file.endswith(".shp"):
+                shp_file = os.path.join(tmp_dir, file)
+            elif file.endswith(".prj"):
+                prj_file = os.path.join(tmp_dir, file)
+        
+        if not shp_file:
+            raise Exception("No se encontró un archivo .shp en el ZIP")
+        
+        # Leer proyección si existe
+        crs_shp = None
+        if prj_file:
+            with open(prj_file, "r") as f:
+                prj_wkt = f.read()
+                try:
+                    crs_shp = CRS.from_wkt(prj_wkt)
+                except Exception as e:
+                    print(f"⚠️ Error al leer .prj: {e}")
+        
+        # Leer el shapefile
+        with shapefile.Reader(shp_file) as sf:
+            shapes = sf.shapes()
+            records = sf.records()
+            fields = sf.fields[1:] # Copiar campos antes de cerrar
+            
+            total_area_ha = 0.0
+            total_area_m2 = 0.0
+            features = []
+            utm_zone = "Desconocida"
+            departamento = "Desconocido"
+            provincia = "Desconocida"
+            distrito = "Desconocido"
+            
+            # Buscar un UBIGEO válido en todos los registros para consultar la ubicación política UNA SOLA VEZ
+            ubigeo_para_consulta = None
+            for i in range(len(records)):
+                record_dict_temp = dict(zip([f[0] for f in fields], records[i]))
+                ubigeo_val_temp = record_dict_temp.get("IDDIST") or record_dict_temp.get("UBIGEO") or record_dict_temp.get("IDUBIGEO")
+                if ubigeo_val_temp:
+                    ubigeo_para_consulta = str(ubigeo_val_temp)
+                    break
+            
+            # Consultar ubicación política fuera del bucle de features para evitar múltiples intentos y timeouts
+            if ubigeo_para_consulta:
+                try:
+                    with engine_titulohabilitante_area.connect() as conn:
+                        res_geo = conn.execute(text("""
+                            SELECT TOP 1 TX_DEPARTAMENTO_TH, TX_PROVINCIA_TH, TX_DISTRITO_TH
+                            FROM SERFOR_BDMCSNIFFS_QA3.[TituloHabilitante].[T_MVC_TITULOHABILITANTE]
+                            WHERE TX_CODIGO_UBIGEO = :ubigeo
+                        """), {"ubigeo": ubigeo_para_consulta})
+                        row_geo = res_geo.fetchone()
+                        if row_geo:
+                            departamento = row_geo.TX_DEPARTAMENTO_TH
+                            provincia = row_geo.TX_PROVINCIA_TH
+                            distrito = row_geo.TX_DISTRITO_TH
+                except Exception as e:
+                    print(f"⚠️ Error de conexión a la base de datos: {e}")
+                    departamento = "Error de Conexión (Intente de nuevo)"
+                    provincia = "Error de Conexión (Intente de nuevo)"
+                    distrito = "Error de Conexión (Intente de nuevo)"
+
+            # Transformador a WGS84 para el GeoJSON de salida
+            transformer_to_wgs84 = None
+            if crs_shp and not crs_shp.is_geographic:
+                 transformer_to_wgs84 = Transformer.from_crs(crs_shp, "EPSG:4326", always_xy=True)
+
+            for i, shape_obj in enumerate(shapes):
+                # Convertir shape a shapely
+                geom = geom_shape(shape_obj.__geo_interface__)
+                
+                area_m2 = 0.0
+                current_utm_zone = "Desconocida"
+                
+                if crs_shp and not crs_shp.is_geographic:
+                    # Ya está proyectado, calcular área directamente
+                    area_m2 = geom.area
+                    # Intentar obtener zona UTM del CRS
+                    if "UTM zone" in crs_shp.to_wkt():
+                        try:
+                            utm_zone_raw = crs_shp.to_wkt().split("UTM zone ")[1].split("\"")[0]
+                            current_utm_zone = utm_zone_raw
+                        except:
+                            pass
+                else:
+                    # Es geográfico o no tiene proyección
+                    centroid = geom.centroid
+                    from pyproj.aoi import AreaOfInterest
+                    from pyproj.database import query_utm_crs_info
+                    
+                    utm_crs_list = query_utm_crs_info(
+                        datum_name="WGS 84",
+                        area_of_interest=AreaOfInterest(
+                            west_lon_degree=centroid.x,
+                            south_lat_degree=centroid.y,
+                            east_lon_degree=centroid.x,
+                            north_lat_degree=centroid.y,
+                        ),
+                    )
+                    if utm_crs_list:
+                        utm_crs = CRS.from_epsg(utm_crs_list[0].code)
+                        current_utm_zone = utm_crs_list[0].name.replace("WGS 84 / UTM zone ", "")
+                        transformer = Transformer.from_crs("EPSG:4326", utm_crs, always_xy=True)
+                        geom_projected = transform(transformer.transform, geom)
+                        area_m2 = geom_projected.area
+                
+                if utm_zone == "Desconocida":
+                    utm_zone = current_utm_zone
+
+                area_ha = area_m2 / 10000.0
+                total_area_ha += area_ha
+                total_area_m2 += area_m2
+                
+                # Convertir a WGS84 para devolver GeoJSON
+                if transformer_to_wgs84:
+                    geom_wgs84 = transform(transformer_to_wgs84.transform, geom)
+                else:
+                    geom_wgs84 = geom
+                
+                # Extraer propiedades y mapear UBIGEO si existe
+                record_dict = dict(zip([f[0] for f in fields], records[i]))
+                ubigeo_val = record_dict.get("IDDIST") or record_dict.get("UBIGEO") or record_dict.get("IDUBIGEO")
+                
+                features.append({
+                    "type": "Feature",
+                    "geometry": mapping(geom_wgs84),
+                    "properties": {
+                        **record_dict,
+                        "area_ha": round(area_ha, 4),
+                        "area_m2": round(area_m2, 2),
+                        "utm_zone": current_utm_zone,
+                        "ubigeo": ubigeo_val
+                    }
+                })
+
+                features.append({
+                    "type": "Feature",
+                    "geometry": mapping(geom_wgs84),
+                    "properties": {
+                        **record_dict,
+                        "area_ha": round(area_ha),
+                        "area_m2": round(area_m2),
+                        "utm_zone": current_utm_zone,
+                        "ubigeo": ubigeo_val
+                    }
+                })
+
+        return {
+            "total_area_ha": round(total_area_ha),
+            "total_area_m2": round(total_area_m2),
+            "utm_zone": utm_zone,
+            "departamento": departamento,
+            "provincia": provincia,
+            "distrito": distrito,
+            "feature_collection": {
+                "type": "FeatureCollection",
+                "features": features
+            },
+            "projection": crs_shp.to_wkt() if crs_shp else "Desconocida"
+        }
 
 def guardar_seccion_formulario(engine, titulo_habilitante: str, tipo: str, seccion: str, datos: dict):
     """

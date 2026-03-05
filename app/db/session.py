@@ -24,7 +24,8 @@ connection_url = URL.create(
     query={
         "driver": DRIVER_ODBC,
         "TrustServerCertificate": "yes",
-        "Encrypt": "no"
+        "Encrypt": "no",
+        "LoginTimeout": "60"
     }
 )
 engine = create_engine(connection_url, echo=False)
@@ -40,7 +41,8 @@ connection_url_cobertura = URL.create(
     query={
         "driver": DRIVER_ODBC,
         "TrustServerCertificate": "yes",
-        "Encrypt": "no"
+        "Encrypt": "no",
+        "LoginTimeout": "60"
     }
 )
 engine_cobertura = create_engine(connection_url_cobertura, echo=False)
@@ -56,7 +58,8 @@ connection_url_titulohabilitante_area = URL.create(
     query={
         "driver": DRIVER_ODBC,
         "TrustServerCertificate": "yes",
-        "Encrypt": "no"
+        "Encrypt": "no",
+        "LoginTimeout": "60"
     }
 )
 engine_titulohabilitante_area = create_engine(connection_url_titulohabilitante_area, echo=False)

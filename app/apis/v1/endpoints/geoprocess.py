@@ -1,5 +1,5 @@
-from fastapi import APIRouter, Body, HTTPException
-from app.services.geo_service import get_area_and_percentage, get_vertice_and_total_area
+from fastapi import APIRouter, Body, HTTPException, UploadFile, File
+from app.services.geo_service import get_area_and_percentage, get_vertice_and_total_area, calculate_shapefile_area
 from app.models.models import Feature, FeatureCollection
 from shapely.geometry import shape
 from shapely.ops import transform
@@ -36,3 +36,19 @@ def analyze_geojson(feature_collection: FeatureCollection = Body(...)):
         results.append({"vertices_utm": vertices_utm, "area_hectares": area_hectares, "properties": feature.properties})
 
     return results
+
+@router.post("/calculate-shapefile-area/", summary="Calcula el área de un Shapefile dentro de un ZIP")
+async def geo_calculate_shapefile_area(file: UploadFile = File(...)):
+    """
+    Recibe un archivo ZIP que contiene los archivos de un Shapefile (.shp, .shx, .dbf, .prj),
+    calcula el área total en hectáreas basándose en su proyección y devuelve un GeoJSON.
+    """
+    if not file.filename.endswith(".zip"):
+        raise HTTPException(status_code=400, detail="El archivo debe ser un .zip")
+    
+    try:
+        content = await file.read()
+        result = calculate_shapefile_area(content)
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
