@@ -9,3 +9,4 @@ uvicorn==0.36.0
 pyproj>=3.7.0
 pyshp==2.3.1
 python-multipart
+requests>=2.31.0
