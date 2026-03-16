@@ -685,3 +685,239 @@ def get_vertice_and_total_area(geometry):
                 vertices_utm.append([round(x, 4), round(y, 4)])
 
     return vertices_utm, area_hectares
+
+
+def geojson_to_wkt(geojson_data: dict) -> str:
+    """
+    Convierte un objeto GeoJSON a formato WKT (Well-Known Text).
+    """
+    geom = geom_shape(geojson_data)
+    return geom.wkt
+
+
+def registrar_bosque_local(
+    engine,
+    id_solicitud: int,
+    id_archivo: int | None,
+    tipo_geometria: str,
+    zona_utm: int,
+    id_dist: str,
+    vertice: int,
+    sector: str,
+    nombre_capa: str,
+    color_capa: str,
+    codigo_seccion: str,
+    geometria_geojson: dict,
+    srid: int,
+    propiedad: dict | None,
+    id_usuario_registro: int
+):
+    """
+    Ejecuta el stored procedure pa_BosqueLocalGeometria_Registrar
+    para registrar una nueva geometría de Bosque Local.
+    """
+    # Convertir GeoJSON a WKT
+    geometria_wkt = geojson_to_wkt(geometria_geojson)
+    propiedad_json = json.dumps(propiedad) if propiedad else None
+
+    # Usar el engine pasado por parámetro
+    raw_conn = engine.raw_connection()
+    cursor = None
+    try:
+        cursor = raw_conn.cursor()
+        
+        # Ejecutar SP con parámetro OUTPUT usando bloque BEGIN...END
+        # Añadimos SET NOCOUNT ON para evitar resultados vacíos intermedios
+        sql_command = """
+            SET NOCOUNT ON;
+            DECLARE @IdOut INT;
+            
+            EXEC BosqueLocal.pa_BosqueLocalGeometria_Registrar
+                @IdSolicitud = ?,
+                @IdArchivo = ?,
+                @TipoGeometria = ?,
+                @ZonaUTM = ?,
+                @IdDist = ?,
+                @Vertice = ?,
+                @Sector = ?,
+                @NombreCapa = ?,
+                @ColorCapa = ?,
+                @CodigoSeccion = ?,
+                @GeometriaWKT = ?,
+                @Srid = ?,
+                @Propiedad = ?,
+                @IdUsuarioRegistro = ?,
+                @IdBosqueLocalGeometria = @IdOut OUTPUT;
+            
+            SELECT @IdOut AS id_geometria;
+        """
+        
+        cursor.execute(sql_command, (
+            id_solicitud,
+            id_archivo,
+            tipo_geometria,
+            zona_utm,
+            id_dist,
+            vertice,
+            sector,
+            nombre_capa,
+            color_capa,
+            codigo_seccion,
+            geometria_wkt,
+            srid,
+            propiedad_json,
+            id_usuario_registro
+        ))
+        
+        # Saltar conjuntos de resultados vacíos (mensajes INFO o DONEINPROC)
+        # hasta encontrar el que contiene el SELECT
+        while cursor.description is None:
+            if not cursor.nextset():
+                break
+        
+        # Ahora obtener el resultado del SELECT final
+        row = cursor.fetchone()
+        id_geometria = int(row[0]) if row and row[0] is not None else None
+        
+        raw_conn.commit()
+        cursor.close()
+        raw_conn.close()
+        
+        if id_geometria is None:
+            raise Exception("No se pudo obtener el ID de la geometría registrada después de la ejecución")
+        
+        return id_geometria
+        
+    except Exception as e:
+        if cursor:
+            cursor.close()
+        if raw_conn:
+            raw_conn.rollback()
+            raw_conn.close()
+        raise e
+
+
+def listar_bosque_local_geometrias(
+    engine,
+    id_solicitud: int | None = None,
+    tipo_geometria: str | None = None,
+    codigo_seccion: str | None = None,
+    id_dist: str | None = None
+):
+    """
+    Ejecuta el stored procedure pa_BosqueLocalGeometria_Listar
+    para listar geometrías de Bosque Local con filtros opcionales.
+    """
+    raw_conn = engine.raw_connection()
+    try:
+        cursor = raw_conn.cursor()
+        
+        # Construir SQL dinámico para los filtros opcionales
+        sql = """
+        EXEC BosqueLocal.pa_BosqueLocalGeometria_Listar
+            @IdSolicitud = ?,
+            @TipoGeometria = ?,
+            @CodigoSeccion = ?,
+            @IdDist = ?;
+        """
+        
+        cursor.execute(sql, (
+            id_solicitud,
+            tipo_geometria,
+            codigo_seccion,
+            id_dist
+        ))
+        
+        # Obtener columnas
+        if cursor.description:
+            columns = [column[0] for column in cursor.description]
+            
+            geometrias = []
+            for row in cursor.fetchall():
+                row_dict = dict(zip(columns, row))
+                
+                # 1. Convertir WKT a GeoJSON si existe geometría
+                if row_dict.get("TX_GEOMETRY_WKT"):
+                    try:
+                        geom = wkt_lib.loads(row_dict["TX_GEOMETRY_WKT"])
+                        row_dict["geometry_geojson"] = mapping(geom)
+                    except Exception as e:
+                        print(f"⚠️ Error al convertir WKT a GeoJSON: {e}")
+                        row_dict["geometry_geojson"] = None
+                
+                # 2. Convertir FE_FECHA_REGISTRO (datetime) a string para FastAPI
+                if row_dict.get("FE_FECHA_REGISTRO"):
+                    row_dict["FE_FECHA_REGISTRO"] = row_dict["FE_FECHA_REGISTRO"].isoformat()
+                
+                # 3. Deserializar TX_PROPIEDAD (JSON string) a diccionario
+                if row_dict.get("TX_PROPIEDAD"):
+                    try:
+                        row_dict["TX_PROPIEDAD"] = json.loads(row_dict["TX_PROPIEDAD"])
+                    except:
+                        row_dict["TX_PROPIEDAD"] = None
+                else:
+                    row_dict["TX_PROPIEDAD"] = None
+                
+                geometrias.append(row_dict)
+        else:
+            geometrias = []
+        
+        cursor.close()
+        raw_conn.close()
+        
+        return geometrias
+        
+    except Exception as e:
+        try:
+            if 'cursor' in locals() and cursor:
+                cursor.close()
+            if 'raw_conn' in locals() and raw_conn:
+                raw_conn.close()
+        except:
+            pass
+        raise e
+
+
+def eliminar_bosque_local_geometria(engine, id_bl_geometria: int, id_usuario: int) -> bool:
+    """
+    Ejecuta el stored procedure pa_BosqueLocalGeometria_Eliminar
+    para realizar el borrado lógico de una geometría de Bosque Local.
+    """
+    raw_conn = engine.raw_connection()
+    try:
+        cursor = raw_conn.cursor()
+        
+        sql = """
+        EXEC BosqueLocal.pa_BosqueLocalGeometria_Eliminar
+            @IdBlGeometria = ?,
+            @IdUsuario = ?;
+        """
+        
+        cursor.execute(sql, (id_bl_geometria, id_usuario))
+        
+        # Obtener resultado del primer set que tenga descripción (el SELECT IdEliminado)
+        while cursor.description is None:
+            if not cursor.nextset():
+                break
+        
+        id_eliminado = None
+        row = cursor.fetchone()
+        if row:
+            id_eliminado = row[0]
+            
+        raw_conn.commit()
+        cursor.close()
+        raw_conn.close()
+        
+        return id_eliminado == id_bl_geometria
+        
+    except Exception as e:
+        try:
+            if 'raw_conn' in locals() and raw_conn:
+                raw_conn.rollback()
+                if 'cursor' in locals() and cursor:
+                    cursor.close()
+                raw_conn.close()
+        except:
+            pass
+        raise e

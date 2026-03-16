@@ -1,6 +1,6 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from app.apis.v1.endpoints import interseccion, titulo_habilitante, geoprocess, temporal_storage, capas_guardadas, secciones, unidades_aprovechamiento
+from app.apis.v1.endpoints import interseccion, titulo_habilitante, geoprocess, temporal_storage, capas_guardadas, secciones, unidades_aprovechamiento, bosque_local
 
 app = FastAPI(
     title="Visor GeoForestal API",
@@ -28,6 +28,7 @@ app.include_router(temporal_storage.router, prefix="/api/v1", tags=["Temporal Da
 app.include_router(capas_guardadas.router, prefix="/api/v1", tags=["Capas Guardadas"])
 app.include_router(secciones.router, prefix="/api/v1", tags=["Guardar Secciones"])
 app.include_router(unidades_aprovechamiento.router, prefix="/api/v1", tags=["Unidades de Aprovechamiento"])
+app.include_router(bosque_local.router, prefix="/api/v1", tags=["Bosque Local"])
 
 @app.get("/api/test-odbc")
 def test_odbc():
