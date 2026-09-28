@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, Body, Path
+from fastapi import APIRouter, HTTPException, Body, Path, Query
 from pydantic import BaseModel, Field
 from typing import List, Dict, Any
 from app.services import geo_service
@@ -31,29 +31,55 @@ class FeatureCollection(BaseModel):
 
 # Endpoints
 
+def _area_titulo_habilitante(code: str):
+    titulo = geo_service.buscar_titulo_habilitante(engine_titulohabilitante_area, code)
+    if not titulo:
+        raise HTTPException(status_code=404, detail="Título habilitante no encontrado")
+
+    nu_id = titulo["NU_ID_TITULOHABILITANTE"]
+    department = titulo["TX_DEPARTAMENTO_TH"]
+    province = titulo["TX_PROVINCIA_TH"]
+    district = titulo["TX_DISTRITO_TH"]
+
+    return geo_service.obtener_titulo_habilitante_area(engine_titulohabilitante_area, nu_id, department, province, district)
+
+@router.get(
+    "/titulo-habilitante-area",
+    summary="Obtener áreas de un Título Habilitante",
+    description="Busca un Título Habilitante por su código y devuelve las áreas geoespaciales asociadas a él en formato GeoJSON. El código se envía como query param (slash-safe): ?tituloHabilitante=17-MAD-TAM%2FCON-PFDM-2019-018",
+    response_model=FeatureCollection
+)
+def obtener_area_titulo_habilitante(tituloHabilitante: str = Query(..., description="Código o nombre parcial del Título Habilitante.")):
+    """
+    Obtiene las áreas de un Título Habilitante a partir de su código.
+
+    - **tituloHabilitante**: Código del título habilitante (query param, soporta `/`).
+    """
+    try:
+        return _area_titulo_habilitante(tituloHabilitante)
+    except HTTPException:
+        raise
+    except Exception as e:
+        print("❌ Error al ejecutar TituloHabilitante_area:", e)
+        raise HTTPException(status_code=500, detail="Error al buscar Título Habilitante")
+
 @router.get(
     "/titulo-habilitante-area/{th_area}",
     summary="Obtener áreas de un Título Habilitante",
-    description="Busca un Título Habilitante por su código y devuelve las áreas geoespaciales asociadas a él en formato GeoJSON.",
+    description="Busca un Título Habilitante por su código y devuelve las áreas geoespaciales asociadas a él en formato GeoJSON. Ruta legacy: no soporta códigos con `/`; usar `?tituloHabilitante=` en esos casos.",
     response_model=FeatureCollection
 )
 def get_titulo_habilitante_area(th_area: str = Path(..., description="Código o nombre parcial del Título Habilitante.")):
     """
     Obtiene las áreas de un Título Habilitante a partir de su código.
+    Ruta legacy: no soporta códigos con `/`. Usar `?tituloHabilitante=` para códigos con `/`.
 
     - **th_area**: Código del título habilitante.
     """
     try:
-        titulo = geo_service.buscar_titulo_habilitante(engine_titulohabilitante_area, th_area)
-        if not titulo:
-            raise HTTPException(status_code=404, detail="Título habilitante no encontrado")
-
-        nu_id = titulo["NU_ID_TITULOHABILITANTE"]
-        department = titulo["TX_DEPARTAMENTO_TH"]
-        province = titulo["TX_PROVINCIA_TH"]
-        district = titulo["TX_DISTRITO_TH"]
-
-        return geo_service.obtener_titulo_habilitante_area(engine_titulohabilitante_area, nu_id, department, province, district)
+        return _area_titulo_habilitante(th_area)
+    except HTTPException:
+        raise
     except Exception as e:
         print("❌ Error al ejecutar TituloHabilitante_area:", e)
         raise HTTPException(status_code=500, detail="Error al buscar Título Habilitante")

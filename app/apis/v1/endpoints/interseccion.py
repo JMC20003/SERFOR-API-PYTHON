@@ -2,6 +2,7 @@ from fastapi import APIRouter, HTTPException, Body
 from pydantic import BaseModel, Field
 from typing import List, Dict, Any, Optional
 from app.services import geo_service
+from app.core.api_errors import error_db_http
 from app.db.session import engine, engine_cobertura
 from shapely import wkt as wkt_lib
 from shapely.geometry import shape as geom_shape, mapping
@@ -68,7 +69,7 @@ def interseccion(req: InterseccionRequest):
         return geo_service.procesar_interseccion(engine, schema, table, wkt_geom)
     except Exception as e:
         print("❌ Intersección error:", e)
-        raise HTTPException(status_code=500, detail="Error al procesar intersección")
+        raise error_db_http(e, "procesar la intersección")
 
 @router.post(
     "/interseccion/cobertura",
@@ -96,7 +97,7 @@ def interseccion_cobertura(req: GeoJSONBody):
         return geo_service.procesar_interseccion_cobertura(engine_cobertura, wkt_geom)
     except Exception as e:
         print("❌ Error en intersección de cobertura vegetal:", e)
-        raise HTTPException(status_code=500, detail="Error al procesar la intersección de cobertura vegetal")
+        raise error_db_http(e, "procesar la intersección de cobertura vegetal")
 
 @router.post(
     "/interseccion/multiple",
@@ -124,7 +125,7 @@ def interseccion_multiple(req: GeoJSONBody):
         return geo_service.procesar_interseccion_multiple(engine_cobertura, wkt_geom)
     except Exception as e:
         print("❌ Error al ejecutar intersección múltiple:", e)
-        raise HTTPException(status_code=500, detail="Error al procesar la intersección múltiple")
+        raise error_db_http(e, "procesar la intersección múltiple")
 
 @router.post(
     "/interseccion/dominio",
@@ -152,4 +153,4 @@ def interseccion_dominio(req: GeoJSONBody):
         return geo_service.procesar_interseccion_dominio(engine_cobertura, wkt_geom)
     except Exception as e:
         print("❌ Error al ejecutar interseccion dominio:", e)
-        raise HTTPException(status_code=500, detail="Error al procesar la interseccion dominio")
+        raise error_db_http(e, "procesar la intersección de dominio")

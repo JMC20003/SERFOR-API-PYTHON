@@ -9,6 +9,7 @@ from app.services.geo_service import (
 from app.services.geo_serfor_service import (
     obtener_zonificacion_geoserfor
 )
+from app.core.api_errors import error_db_http
 from app.db.session import engine_titulohabilitante_area as engine
 
 router = APIRouter()
@@ -164,10 +165,7 @@ def registrar_bosque_local_endpoint(payload: BosqueLocalRequest = Body(...)):
     except HTTPException as http_exc:
         raise http_exc
     except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Error al registrar la geometría: {str(e)}"
-        )
+        raise error_db_http(e, "registrar la geometría de Bosque Local")
 
 
 @router.get(
@@ -200,10 +198,7 @@ def listar_bosque_local_geometrias_endpoint(
         return geometrias
 
     except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Error al listar las geometrías: {str(e)}"
-        )
+        raise error_db_http(e, "listar las geometrías de Bosque Local")
 
 
 @router.delete(
@@ -245,10 +240,7 @@ def eliminar_bosque_local_geometria_endpoint(
     except HTTPException as http_exc:
         raise http_exc
     except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Error al eliminar la geometría: {str(e)}"
-        )
+        raise error_db_http(e, "eliminar la geometría de Bosque Local")
 
 
 @router.post(
@@ -344,7 +336,4 @@ def obtener_zonificacion_endpoint(payload: ObtenerZonificacionRequest = Body(...
     except HTTPException as http_exc:
         raise http_exc
     except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Error al obtener la zonificación: {str(e)}"
-        )
+        raise error_db_http(e, "obtener la zonificación del Bosque Local")

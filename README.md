@@ -145,8 +145,14 @@ Estos endpoints permiten realizar análisis de intersección entre un área geog
 
 Endpoints para consultar información sobre Títulos Habilitantes (TH).
 
-*   **`GET /api/v1/titulo-habilitante-area/{th_area}`**
-    *   **Descripción:** Busca un Título Habilitante por su código o nombre parcial y devuelve las áreas geoespaciales asociadas.
+*   **`GET /api/v1/titulo-habilitante-area?tituloHabilitante={codigo}`** (recomendado, slash-safe)
+    *   **Descripción:** Busca un Título Habilitante por su código o nombre parcial y devuelve las áreas geoespaciales asociadas. El código se envía como query param, por lo que soporta códigos con `/` (ej. `17-MAD-TAM/CON-PFDM-2019-018` → `tituloHabilitante=17-MAD-TAM%2FCON-PFDM-2019-018`).
+    *   **Parámetros (Query):**
+        *   `tituloHabilitante` (string, obligatorio): Código o nombre para la búsqueda.
+    *   **Respuesta Exitosa (200):** Un `FeatureCollection` GeoJSON con la geometría del título encontrado.
+
+*   **`GET /api/v1/titulo-habilitante-area/{th_area}`** (legacy, solo códigos sin `/`)
+    *   **Descripción:** Busca un Título Habilitante por su código o nombre parcial y devuelve las áreas geoespaciales asociadas. Solo funciona con códigos que no contengan `/`; para códigos con `/` usar el endpoint con query param.
     *   **Parámetros (URL):**
         *   `th_area` (string): Código o nombre para la búsqueda.
     *   **Respuesta Exitosa (200):** Un `FeatureCollection` GeoJSON con la geometría del título encontrado.
@@ -212,8 +218,14 @@ Endpoints para guardar y recuperar datos de secciones de formularios dinámicos.
         *   `seccion` (string): Nombre de la sección.
         *   `datos` (any): Contenido JSON de la sección.
 
-*   **`GET /api/v1/formulario/seccion/{titulo_habilitante}/{tipo}`**
-    *   **Descripción:** Recupera todas las secciones y sus datos para un Título Habilitante y tipo de formulario específicos.
+*   **`GET /api/v1/formulario/seccion?tituloHabilitante={codigo}&tipo={tipo}`** (recomendado, slash-safe)
+    *   **Descripción:** Recupera todas las secciones y sus datos para un Título Habilitante y tipo de formulario específicos. El código se envía como query param, por lo que soporta códigos con `/`.
+    *   **Parámetros (Query):**
+        *   `tituloHabilitante` (string, obligatorio): Código del TH.
+        *   `tipo` (string, obligatorio): Tipo de formulario.
+
+*   **`GET /api/v1/formulario/seccion/{titulo_habilitante}/{tipo}`** (legacy, solo códigos sin `/`)
+    *   **Descripción:** Recupera todas las secciones y sus datos para un Título Habilitante y tipo de formulario específicos. Solo funciona con códigos que no contengan `/`; para códigos con `/` usar el endpoint con query params.
 
 
 
